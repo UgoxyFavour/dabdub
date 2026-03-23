@@ -1,4 +1,4 @@
-# Cheese - Universal Crypto-to-Fiat Settlement
+# Universal Crypto-to-Fiat Settlement
 
 > **Seamless crypto payments, instant fiat settlements** - A multi-chain settlement infrastructure that bridges Web3 payments with traditional banking, enabling merchants to accept stablecoin payments and receive instant fiat settlements.
 
