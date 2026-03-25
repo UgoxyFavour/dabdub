@@ -6,6 +6,9 @@ export class User extends BaseEntity {
   @Column({ unique: true, length: 255 })
   email!: string;
 
+  @Column({ unique: true, length: 50 })
+  username!: string;
+
   @Column({ name: 'password_hash', length: 255 })
   passwordHash!: string;
 

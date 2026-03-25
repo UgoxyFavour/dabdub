@@ -1,10 +1,13 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigType } from '@nestjs/config';
 import { BullModule } from '@nestjs/bull';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AppConfigModule, appConfig, redisConfig } from './config';
 import { DatabaseModule } from './database/database.module';
 import { HealthModule } from './health/health.module';
+import { AuthModule } from './auth/auth.module';
+import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 
 @Module({
   imports: [
@@ -40,6 +43,17 @@ import { HealthModule } from './health/health.module';
     }),
 
     HealthModule,
+
+    // 5. Auth — register/login/refresh/logout + global JWT guard.
+    AuthModule,
+  ],
+  providers: [
+    // Global guard: every route requires a valid JWT unless decorated @Public().
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
   ],
 })
 export class AppModule {}
+
