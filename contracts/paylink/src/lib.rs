@@ -22,6 +22,7 @@ pub struct PayLinkData {
     pub expiration_ledger: u32,
     /// Reserved for single-payment enforcement when claiming or settling a PayLink.
     pub paid: bool,
+    pub cancelled: bool,
 }
 
 #[contracterror]
@@ -32,6 +33,9 @@ pub enum Error {
     InvalidAmount = 2,
     CreatorNotFound = 3,
     LedgerOverflow = 4,
+    PayLinkNotFound = 5,
+    NotPayLinkCreator = 6,
+    PayLinkAlreadyPaid = 7,
 }
 
 #[contract]
@@ -81,6 +85,7 @@ impl PayLinkContract {
             note,
             expiration_ledger,
             paid: false,
+            cancelled: false,
         };
 
         env.storage().persistent().set(&paylink_key, &data);
@@ -95,6 +100,39 @@ impl PayLinkContract {
         env.events().publish(
             (Symbol::new(&env, "paylink_created"),),
             (creator_username, token_id, amount, expiration_ledger),
+        );
+
+        Ok(())
+    }
+
+    pub fn cancel_paylink(
+        env: Env,
+        requester_username: String,
+        token_id: String,
+    ) -> Result<(), Error> {
+        env.current_contract_address().require_auth();
+
+        let paylink_key = DataKey::PayLink(token_id.clone());
+        let mut paylink = env
+            .storage()
+            .persistent()
+            .get::<_, PayLinkData>(&paylink_key)
+            .ok_or(Error::PayLinkNotFound)?;
+
+        if requester_username != paylink.creator_username {
+            return Err(Error::NotPayLinkCreator);
+        }
+
+        if paylink.paid {
+            return Err(Error::PayLinkAlreadyPaid);
+        }
+
+        paylink.cancelled = true;
+        env.storage().persistent().set(&paylink_key, &paylink);
+
+        env.events().publish(
+            (Symbol::new(&env, "paylink_cancelled"),),
+            (requester_username, token_id),
         );
 
         Ok(())
@@ -133,6 +171,7 @@ mod test {
         assert_eq!(stored.note, note);
         assert_eq!(stored.expiration_ledger, 150);
         assert!(!stored.paid);
+        assert!(!stored.cancelled);
     }
 
     #[test]
@@ -169,6 +208,78 @@ mod test {
         assert_eq!(
             client.try_create_paylink(&creator, &token_id, &0_i128, &note, &10),
             Ok(Err(Error::InvalidAmount))
+        );
+    }
+
+    #[test]
+    fn cancel_paylink_marks_link_cancelled() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, PayLinkContract);
+        let client = PayLinkContractClient::new(&env, &contract_id);
+
+        let creator = String::from_str(&env, "dave");
+        let token_id = String::from_str(&env, "tok-cancel");
+        let note = String::from_str(&env, "lunch");
+
+        client.register_creator(&creator);
+        client.create_paylink(&creator, &token_id, &25_i128, &note, &20);
+
+        client.cancel_paylink(&creator, &token_id);
+
+        let stored = client.get_paylink(&token_id).expect("expected PayLink in storage");
+        assert!(stored.cancelled);
+        assert_eq!(stored.creator_username, creator);
+        assert!(!stored.paid);
+    }
+
+    #[test]
+    fn cancel_paylink_by_non_creator_returns_not_paylink_creator() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, PayLinkContract);
+        let client = PayLinkContractClient::new(&env, &contract_id);
+
+        let creator = String::from_str(&env, "erin");
+        let other_user = String::from_str(&env, "frank");
+        let token_id = String::from_str(&env, "tok-wrong-user");
+        let note = String::from_str(&env, "gift");
+
+        client.register_creator(&creator);
+        client.create_paylink(&creator, &token_id, &40_i128, &note, &20);
+
+        assert_eq!(
+            client.try_cancel_paylink(&other_user, &token_id),
+            Ok(Err(Error::NotPayLinkCreator))
+        );
+    }
+
+    #[test]
+    fn cancel_paid_paylink_returns_paylink_already_paid() {
+        let env = Env::default();
+        env.mock_all_auths();
+
+        let contract_id = env.register_contract(None, PayLinkContract);
+        let client = PayLinkContractClient::new(&env, &contract_id);
+
+        let creator = String::from_str(&env, "grace");
+        let token_id = String::from_str(&env, "tok-paid");
+        let note = String::from_str(&env, "rent");
+
+        client.register_creator(&creator);
+        client.create_paylink(&creator, &token_id, &75_i128, &note, &20);
+
+        let mut stored = client.get_paylink(&token_id).expect("expected PayLink in storage");
+        stored.paid = true;
+        env.storage()
+            .persistent()
+            .set(&DataKey::PayLink(token_id.clone()), &stored);
+
+        assert_eq!(
+            client.try_cancel_paylink(&creator, &token_id),
+            Ok(Err(Error::PayLinkAlreadyPaid))
         );
     }
 }
