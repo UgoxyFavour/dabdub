@@ -35,10 +35,8 @@ impl CheesePay {
         set_persistent(&env, &DataKey::AddrToUsername(address.clone()), &username);
         set_persistent(&env, &DataKey::Balance(username.clone()), &0_i128);
 
-        env.events().publish(
-            (symbol_short!("user_reg"), username),
-            address,
-        );
+        env.events()
+            .publish((symbol_short!("user_reg"), username), address);
 
         Ok(())
     }
@@ -237,8 +235,7 @@ mod tests {
                 get_persistent(&e, &DataKey::AddrToUsername(user_addr.clone())).unwrap();
             assert_eq!(stored_name, username);
 
-            let balance: i128 =
-                get_persistent(&e, &DataKey::Balance(username.clone())).unwrap();
+            let balance: i128 = get_persistent(&e, &DataKey::Balance(username.clone())).unwrap();
             assert_eq!(balance, 0);
         });
     }
