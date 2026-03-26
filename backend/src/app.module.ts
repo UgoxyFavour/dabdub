@@ -18,6 +18,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { LoggingModule } from './logging/logging.module';
 import { CorrelationIdMiddleware } from './logging/correlation-id.middleware';
 import { HttpLoggingInterceptor } from './logging/http-logging.interceptor';
+import { WebhooksModule } from './webhooks/webhooks.module';
 
 @Module({
   imports: [
@@ -72,22 +73,11 @@ import { HttpLoggingInterceptor } from './logging/http-logging.interceptor';
     // 7. WebSockets — Socket.io real-time gateway.
     WsModule,
 
-    // 7. Tier Config — membership tiers and limits.
-    TierConfigModule,
-    // 7. Virtual Accounts — Flutterwave integration for NGN deposits.
-    VirtualAccountModule,
+    // 7. Notifications — entity + API + realtime delivery.
+    NotificationsModule,
 
-    // 8. Rates — Currency conversion rates.
-    RatesModule,
-
-    // 9. Soroban — Stellar smart contract integration.
-    SorobanModule,
-
-    // 10. Deposits — Deposit records.
-    DepositsModule,
-
-    // 11. Transactions — Transaction records.
-    TransactionsModule,
+    // 8. Webhooks — subscriptions + signed deliveries + retries.
+    WebhooksModule,
   ],
   providers: [
     // Global guard: every route requires a valid JWT unless decorated @Public().
