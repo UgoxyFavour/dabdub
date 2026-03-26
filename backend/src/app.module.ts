@@ -24,6 +24,7 @@ import { MerchantsModule } from './merchants/merchants.module';
 import { UsersModule } from './users/users.module';
 import { BankAccountsModule } from './bank-accounts/bank-accounts.module';
 import { PayLinkModule } from './paylink/paylink.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -92,6 +93,8 @@ import { PayLinkModule } from './paylink/paylink.module';
     BankAccountsModule,
 
     PayLinkModule,
+
+    AdminModule,
   ],
   providers: [
     // Global guard: every route requires a valid JWT unless decorated @Public().
