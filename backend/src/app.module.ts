@@ -25,6 +25,7 @@ import { UsersModule } from './users/users.module';
 import { BankAccountsModule } from './bank-accounts/bank-accounts.module';
 import { PayLinkModule } from './paylink/paylink.module';
 import { AdminModule } from './admin/admin.module';
+import { EarningsModule } from './earnings/earnings.module';
 import { SmsModule } from './sms/sms.module';
 
 @Module({
@@ -101,6 +102,9 @@ import { SmsModule } from './sms/sms.module';
     SmsModule,
 
     AdminModule,
+
+    // 10. Earnings — yield dashboard, APY display, projections.
+    EarningsModule,
   ],
   providers: [
     {
