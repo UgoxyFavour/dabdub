@@ -27,6 +27,8 @@ pub enum Error {
     Unauthorized = 2,
     UsernameAlreadyRegistered = 3,
     UserAlreadyRegistered = 4,
+    FeeTooHigh = 5,
+    UserNotFound = 6,
 }
 
 #[contract]
@@ -53,6 +55,56 @@ impl CheesePay {
             .publish((symbol_short!("user_reg"), username), address);
 
         Ok(())
+    }
+
+    /// Set the platform fee rate in basis points. Admin only. Valid range: [0, 500].
+    pub fn set_fee_rate(env: Env, new_bps: i128) -> Result<(), Error> {
+        let admin: Address = get_instance(&env, &DataKey::Admin)?;
+        admin.require_auth();
+
+        if new_bps < 0 || new_bps > 500 {
+            return Err(Error::FeeTooHigh);
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::FeeRateBps, &(new_bps as u32));
+
+        env.events()
+            .publish((symbol_short!("fee_upd"),), new_bps);
+
+        Ok(())
+    }
+
+    /// Set the fee treasury by username. Admin only. Username must be registered on-chain.
+    pub fn set_fee_treasury(env: Env, new_treasury_username: String) -> Result<(), Error> {
+        let admin: Address = get_instance(&env, &DataKey::Admin)?;
+        admin.require_auth();
+
+        // Validate the username exists on-chain
+        if get_persistent::<Address>(&env, &DataKey::UsernameToAddr(new_treasury_username.clone())).is_none() {
+            return Err(Error::UserNotFound);
+        }
+
+        env.storage()
+            .instance()
+            .set(&DataKey::FeeTreasury, &new_treasury_username);
+
+        env.events()
+            .publish((symbol_short!("trs_upd"),), new_treasury_username);
+
+        Ok(())
+    }
+
+    /// Read the current fee rate in basis points. No auth required.
+    pub fn get_fee_rate(env: Env) -> Result<i128, Error> {
+        let bps: u32 = get_instance(&env, &DataKey::FeeRateBps)?;
+        Ok(bps as i128)
+    }
+
+    /// Read the current fee treasury username. No auth required.
+    pub fn get_fee_treasury(env: Env) -> Result<String, Error> {
+        get_instance(&env, &DataKey::FeeTreasury)
     }
 }
 
@@ -625,5 +677,149 @@ mod tests {
         
         // Verify: amount = fee + net
         assert_eq!(amount, fee + net);
+    }
+
+    // ── set_fee_rate ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn set_fee_rate_valid() {
+        let e = env();
+        let (contract_id, _admin) = setup(&e);
+        let client = super::CheesePayClient::new(&e, &contract_id);
+
+        e.mock_all_auths();
+        client.set_fee_rate(&50_i128);
+
+        let rate = client.get_fee_rate();
+        assert_eq!(rate, 50_i128);
+    }
+
+    #[test]
+    fn set_fee_rate_zero_is_valid() {
+        let e = env();
+        let (contract_id, _admin) = setup(&e);
+        let client = super::CheesePayClient::new(&e, &contract_id);
+
+        e.mock_all_auths();
+        client.set_fee_rate(&0_i128);
+
+        assert_eq!(client.get_fee_rate(), 0_i128);
+    }
+
+    #[test]
+    fn set_fee_rate_500_is_valid_boundary() {
+        let e = env();
+        let (contract_id, _admin) = setup(&e);
+        let client = super::CheesePayClient::new(&e, &contract_id);
+
+        e.mock_all_auths();
+        client.set_fee_rate(&500_i128);
+
+        assert_eq!(client.get_fee_rate(), 500_i128);
+    }
+
+    #[test]
+    fn set_fee_rate_501_returns_fee_too_high() {
+        let e = env();
+        let (contract_id, _admin) = setup(&e);
+        let client = super::CheesePayClient::new(&e, &contract_id);
+
+        e.mock_all_auths();
+        let result = client.try_set_fee_rate(&501_i128);
+        assert_eq!(result, Err(Ok(Error::FeeTooHigh)));
+    }
+
+    #[test]
+    fn set_fee_rate_negative_returns_fee_too_high() {
+        let e = env();
+        let (contract_id, _admin) = setup(&e);
+        let client = super::CheesePayClient::new(&e, &contract_id);
+
+        e.mock_all_auths();
+        let result = client.try_set_fee_rate(&(-1_i128));
+        assert_eq!(result, Err(Ok(Error::FeeTooHigh)));
+    }
+
+    #[test]
+    fn set_fee_rate_emits_event() {
+        let e = env();
+        let (contract_id, _admin) = setup(&e);
+        let client = super::CheesePayClient::new(&e, &contract_id);
+
+        e.mock_all_auths();
+        client.set_fee_rate(&100_i128);
+        // Successful execution implies event was published
+        assert_eq!(client.get_fee_rate(), 100_i128);
+    }
+
+    // ── set_fee_treasury ─────────────────────────────────────────────────────
+
+    #[test]
+    fn set_fee_treasury_unknown_username_returns_user_not_found() {
+        let e = env();
+        let (contract_id, _admin) = setup(&e);
+        let client = super::CheesePayClient::new(&e, &contract_id);
+
+        e.mock_all_auths();
+        let result = client.try_set_fee_treasury(&String::from_str(&e, "ghost"));
+        assert_eq!(result, Err(Ok(Error::UserNotFound)));
+    }
+
+    #[test]
+    fn set_fee_treasury_registered_username_succeeds() {
+        let e = env();
+        let (contract_id, _admin) = setup(&e);
+        let client = super::CheesePayClient::new(&e, &contract_id);
+        let treasury_addr = fake_addr(&e);
+        let treasury_name = String::from_str(&e, "treasury");
+
+        e.mock_all_auths();
+        // Register the treasury user first
+        client.register_user(&treasury_name, &treasury_addr);
+        // Now set it as fee treasury
+        client.set_fee_treasury(&treasury_name);
+
+        let stored = client.get_fee_treasury();
+        assert_eq!(stored, treasury_name);
+    }
+
+    #[test]
+    fn set_fee_treasury_emits_event() {
+        let e = env();
+        let (contract_id, _admin) = setup(&e);
+        let client = super::CheesePayClient::new(&e, &contract_id);
+        let treasury_name = String::from_str(&e, "treasury");
+
+        e.mock_all_auths();
+        client.register_user(&treasury_name, &fake_addr(&e));
+        client.set_fee_treasury(&treasury_name);
+
+        assert_eq!(client.get_fee_treasury(), treasury_name);
+    }
+
+    // ── get_fee_rate ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn get_fee_rate_reads_stored_value() {
+        let e = env();
+        let (contract_id, _admin) = setup(&e);
+        let client = super::CheesePayClient::new(&e, &contract_id);
+
+        e.mock_all_auths();
+        client.set_fee_rate(&75_i128);
+
+        // Read without auth — pure read
+        let rate = client.get_fee_rate();
+        assert_eq!(rate, 75_i128);
+    }
+
+    #[test]
+    fn get_fee_rate_not_initialized_returns_error() {
+        let e = env();
+        let contract_id = e.register(CheesePay, ());
+        let client = super::CheesePayClient::new(&e, &contract_id);
+
+        let result = client.try_get_fee_rate();
+        assert_eq!(result, Err(Ok(Error::NotInitialized)));
     }
 }
