@@ -17,7 +17,7 @@ jest.mock('firebase-admin', () => ({
 jest.mock('web-push', () => ({
   sendNotification,
   setVapidDetails,
-}));
+}), { virtual: true });
 
 describe('FirebaseService', () => {
   let service: FirebaseService;
