@@ -46,6 +46,7 @@ import { KycModule } from './kyc/kyc.module';
 import { ReportsModule } from './reports/reports.module';
 import { ApiVersionModule } from './api-version/api-version.module';
 import { DeprecationHeadersInterceptor } from './api-version/deprecation-headers.interceptor';
+import { ActivityModule } from './activity/activity.module';
 
 @Module({
   imports: [
@@ -159,6 +160,9 @@ import { DeprecationHeadersInterceptor } from './api-version/deprecation-headers
 
     // Reports — async CSV data exports via BullMQ + R2.
     ReportsModule,
+
+    // Activity — chronological feed with cursor pagination, summary, and breakdown.
+    ActivityModule,
   ],
   providers: [
     {
