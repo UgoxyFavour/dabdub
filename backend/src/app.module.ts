@@ -46,6 +46,7 @@ import { KycModule } from './kyc/kyc.module';
 import { ReportsModule } from './reports/reports.module';
 import { ApiVersionModule } from './api-version/api-version.module';
 import { DeprecationHeadersInterceptor } from './api-version/deprecation-headers.interceptor';
+import { BalanceModule } from './balance/balance.module';
 
 @Module({
   imports: [
@@ -159,6 +160,9 @@ import { DeprecationHeadersInterceptor } from './api-version/deprecation-headers
 
     // Reports — async CSV data exports via BullMQ + R2.
     ReportsModule,
+
+    // Balance — unified balance aggregation with caching.
+    BalanceModule,
   ],
   providers: [
     {

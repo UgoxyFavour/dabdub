@@ -613,6 +613,10 @@ mod test {
         assert_eq!(
             client.try_credit_yield(&username, &-100_i128),
             Err(Ok(Error::InvalidAmount))
+        );
+    }
+
+    #[test]
     fn cancel_paylink_returns_contract_paused_when_paused() {
         let (env, _contract_id, client, _admin) = setup();
         env.mock_all_auths();

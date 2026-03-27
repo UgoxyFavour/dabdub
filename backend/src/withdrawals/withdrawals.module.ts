@@ -9,6 +9,7 @@ import { WithdrawalsController } from './withdrawals.controller';
 import { WithdrawalProcessor } from './processors/withdrawal.processor';
 import { SorobanModule } from '../soroban/soroban.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { BalanceModule } from '../balance/balance.module';
 
 @Module({
   imports: [
@@ -16,6 +17,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     BullModule.registerQueue({ name: WITHDRAWAL_QUEUE }),
     SorobanModule,
     NotificationsModule,
+    BalanceModule,
   ],
   controllers: [WithdrawalsController],
   providers: [WithdrawalsService, WithdrawalProcessor],

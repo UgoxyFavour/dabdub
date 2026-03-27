@@ -8,6 +8,7 @@ import {
   TransactionStatus,
 } from '../transactions/entities/transaction.entity';
 import { VirtualAccount } from '../virtual-account/entities/virtual-account.entity';
+import { BalanceService } from '../balance/balance.service';
 
 @Injectable()
 export class DepositsService {
@@ -18,6 +19,7 @@ export class DepositsService {
     private readonly depositRepo: Repository<Deposit>,
     @InjectRepository(Transaction)
     private readonly transactionRepo: Repository<Transaction>,
+    private readonly balanceService: BalanceService,
   ) {}
 
   async createDeposit(
@@ -55,6 +57,9 @@ export class DepositsService {
     });
 
     await this.transactionRepo.save(transaction);
+
+    // Invalidate balance cache
+    await this.balanceService.invalidateCache(userId);
 
     this.logger.log(
       `Created deposit and transaction for user ${userId}: ${usdcAmount} USDC`,
