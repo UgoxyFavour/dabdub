@@ -11,6 +11,9 @@ export enum TransactionType {
   STAKE = 'stake',
   UNSTAKE = 'unstake',
   YIELD_CREDIT = 'yield_credit',
+  VIRTUAL_CARD_CREATION = 'virtual_card_creation',
+  VIRTUAL_CARD_FUND = 'virtual_card_fund',
+  VIRTUAL_CARD_SPEND = 'virtual_card_spend',
 }
 
 export enum TransactionStatus {

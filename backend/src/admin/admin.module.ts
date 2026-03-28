@@ -16,6 +16,8 @@ import { CronModule } from '../cron/cron.module';
 import { CronAdminController } from './cron-admin.controller';
 import { AuditModule } from '../audit/audit.module';
 
+import { AnalyticsModule } from './analytics/analytics.module';
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([
@@ -35,6 +37,9 @@ import { AuditModule } from '../audit/audit.module';
   ],
   providers: [AdminService],
   controllers: [AdminController, CronAdminController],
+  ],
+  providers: [AdminService],
+  controllers: [AdminController],
   exports: [AdminService, AdminAuthModule, AnalyticsModule],
 })
 export class AdminModule {}

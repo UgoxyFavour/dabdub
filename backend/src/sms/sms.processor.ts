@@ -3,6 +3,7 @@ import { Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Job } from 'bull';
+import * as Sentry from '@sentry/nestjs';
 import { SmsLog, SmsStatus } from './entities/sms-log.entity';
 import { TermiiService } from './termii.service';
 import { SMS_QUEUE, SmsJobPayload } from './sms.service';
@@ -21,15 +22,39 @@ export class SmsProcessor {
   async handleSend(job: Job<SmsJobPayload>): Promise<void> {
     const { logId, phone, message } = job.data;
 
-    const { messageId } = await this.termii.send(phone, message);
+    // Wrap in Sentry span for performance monitoring
+    await Sentry.startSpan(
+      {
+        op: 'bullmq.job',
+        name: `process.${SMS_QUEUE}.send`,
+        attributes: {
+          queue: SMS_QUEUE,
+          jobType: 'send',
+          jobId: job.id?.toString() || 'unknown',
+          logId,
+          phone,
+        },
+      },
+      async () => {
+        const { messageId } = await this.termii.send(phone, message);
 
-    await this.logRepo.update(logId, {
-      status: SmsStatus.SENT,
-      providerRef: messageId,
-      sentAt: new Date(),
+        await this.logRepo.update(logId, {
+          status: SmsStatus.SENT,
+          providerRef: messageId,
+          sentAt: new Date(),
+        });
+
+        this.logger.log(`SMS sent logId=${logId} messageId=${messageId}`);
+      },
+    ).catch(async (error) => {
+      Sentry.withScope((scope) => {
+        scope.setTag('module', 'sms');
+        scope.setExtra('logId', logId);
+        scope.setExtra('jobId', job.id?.toString());
+        Sentry.captureException(error);
+      });
+      throw error;
     });
-
-    this.logger.log(`SMS sent logId=${logId} messageId=${messageId}`);
   }
 
   @OnQueueFailed()

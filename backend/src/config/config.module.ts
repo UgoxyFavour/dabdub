@@ -11,6 +11,8 @@ import { r2Config } from './r2.config';
 import { flutterwaveConfig } from './flutterwave.config';
 import { paystackConfig } from './paystack.config';
 import { firebaseConfig } from './firebase.config';
+import { sudoAfricaConfig } from './sudo-africa.config';
+import { webPushConfig } from './web-push.config';
 
 /**
  * Combined Joi validation schema for all environment variables.
@@ -140,12 +142,32 @@ const validationSchema = Joi.object({
 
   // ── Firebase ─────────────────────────────────────────────────────────────
   FIREBASE_SERVICE_ACCOUNT: Joi.string().required().messages({ 'any.required': 'FIREBASE_SERVICE_ACCOUNT is required' }),
+  VAPID_PUBLIC_KEY: Joi.string()
+    .required()
+    .messages({ 'any.required': 'VAPID_PUBLIC_KEY is required' }),
+  VAPID_PRIVATE_KEY: Joi.string()
+    .required()
+    .messages({ 'any.required': 'VAPID_PRIVATE_KEY is required' }),
+  VAPID_SUBJECT: Joi.string()
+    .uri({ scheme: [/https?/, 'mailto'] })
+    .default('mailto:support@cheesepay.app'),
 
   // ── Paystack ──────────────────────────────────────────────────────────────
   PAYSTACK_SECRET_KEY: Joi.string()
     .required()
     .messages({ 'any.required': 'PAYSTACK_SECRET_KEY is required' }),
   PAYSTACK_BASE_URL: Joi.string().uri().default('https://api.paystack.co'),
+
+  // ── Sudo Africa ────────────────────────────────────────────────────────────
+  SUDO_AFRICA_API_KEY: Joi.string()
+    .required()
+    .messages({ 'any.required': 'SUDO_AFRICA_API_KEY is required' }),
+  SUDO_AFRICA_BASE_URL: Joi.string()
+    .uri()
+    .default('https://api.sudoafrica.com/v1'),
+  SUDO_AFRICA_WEBHOOK_SECRET: Joi.string()
+    .required()
+    .messages({ 'any.required': 'SUDO_AFRICA_WEBHOOK_SECRET is required' }),
 });
 
 @Module({
@@ -163,6 +185,8 @@ const validationSchema = Joi.object({
         flutterwaveConfig,
         paystackConfig,
         firebaseConfig,
+        sudoAfricaConfig,
+        webPushConfig,
       ],
       validationSchema,
       validationOptions: { abortEarly: false },

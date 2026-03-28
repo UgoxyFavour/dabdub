@@ -5,12 +5,13 @@ import { DeviceToken } from './entities/device-token.entity';
 import { FirebaseService } from './firebase.service';
 import { PushService } from './push.service';
 import { PushController } from './push.controller';
-import { firebaseConfig } from '../config';
+import { firebaseConfig, webPushConfig } from '../config';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([DeviceToken]),
     ConfigModule.forFeature(firebaseConfig),
+    ConfigModule.forFeature(webPushConfig),
   ],
   controllers: [PushController],
   providers: [FirebaseService, PushService],

@@ -13,3 +13,8 @@ export {
 export { paystackConfig, type PaystackConfig } from './paystack.config';
 export { smsConfig, smsConfigValidation } from './sms.config';
 export { firebaseConfig, firebaseConfigValidation } from './firebase.config';
+export {
+  sudoAfricaConfig,
+  type SudoAfricaConfig,
+} from './sudo-africa.config';
+export { webPushConfig, webPushConfigValidation } from './web-push.config';

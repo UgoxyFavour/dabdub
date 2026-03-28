@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { DeviceToken, DevicePlatform } from './entities/device-token.entity';
 import { FirebaseService, PushPayload } from './firebase.service';
+import type { PushSubscription } from 'web-push';
 
 @Injectable()
 export class PushService {
@@ -15,17 +16,16 @@ export class PushService {
   ) {}
 
   async send(userId: string, payload: PushPayload): Promise<void> {
-    const tokens = await this.tokenRepo.find({
+    const devices = await this.tokenRepo.find({
       where: { userId, isActive: true },
     });
 
-    if (!tokens.length) {
+    if (!devices.length) {
       this.logger.log(`No active tokens for userId=${userId}`);
       return;
     }
 
-    const tokenStrings = tokens.map((t) => t.token);
-    const { failedTokens } = await this.firebase.sendMulticast(tokenStrings, payload);
+    const { failedTokens } = await this.firebase.sendToDevices(devices, payload);
 
     if (failedTokens.length) {
       await this.tokenRepo
@@ -61,6 +61,8 @@ export class PushService {
         isActive: true,
         lastUsedAt: new Date(),
         userId,
+        platform,
+        subscription: platform === DevicePlatform.WEB ? existing.subscription : null,
       });
       return this.tokenRepo.findOne({ where: { token } }) as Promise<DeviceToken>;
     }
@@ -70,6 +72,37 @@ export class PushService {
         userId,
         token,
         platform,
+        subscription: null,
+        isActive: true,
+        lastUsedAt: new Date(),
+      }),
+    );
+  }
+
+  async registerWebSubscription(
+    userId: string,
+    subscription: PushSubscription,
+  ): Promise<DeviceToken> {
+    const endpoint = subscription.endpoint;
+    const existing = await this.tokenRepo.findOne({ where: { token: endpoint } });
+
+    if (existing) {
+      await this.tokenRepo.update(existing.id, {
+        isActive: true,
+        lastUsedAt: new Date(),
+        userId,
+        platform: DevicePlatform.WEB,
+        subscription,
+      });
+      return this.tokenRepo.findOne({ where: { token: endpoint } }) as Promise<DeviceToken>;
+    }
+
+    return this.tokenRepo.save(
+      this.tokenRepo.create({
+        userId,
+        token: endpoint,
+        platform: DevicePlatform.WEB,
+        subscription,
         isActive: true,
         lastUsedAt: new Date(),
       }),
@@ -78,5 +111,9 @@ export class PushService {
 
   async unregister(token: string): Promise<void> {
     await this.tokenRepo.update({ token }, { isActive: false });
+  }
+
+  async unregisterWebSubscription(endpoint: string): Promise<void> {
+    await this.unregister(endpoint);
   }
 }

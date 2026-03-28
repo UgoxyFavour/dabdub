@@ -24,6 +24,7 @@ import { CreatePayLinkDto } from './dto/create-pay-link.dto';
 import { ListPayLinksQueryDto } from './dto/list-pay-links-query.dto';
 import { PayLinkPublicDto } from './dto/pay-link-public.dto';
 import { PayLink, PayLinkStatus } from './entities/pay-link.entity';
+import { BalanceService } from '../balance/balance.service';
 
 const DEFAULT_EXPIRES_HOURS = 72;
 const PAYLINK_TOKEN_SIZE = 10;
@@ -57,6 +58,7 @@ export class PayLinkService {
     private readonly gateway: CheeseGateway,
     private readonly emailService: EmailService,
     private readonly notificationService: NotificationService,
+    private readonly balanceService: BalanceService,
   ) {}
 
   async countActiveReceiveLinks(creatorUserId: string): Promise<number> {
@@ -191,6 +193,10 @@ export class PayLinkService {
         description: `PayLink payment received from ${payer.username}`,
       }),
     );
+
+    // Invalidate balance cache for both users
+    await this.balanceService.invalidateCache(payer.id);
+    await this.balanceService.invalidateCache(creator.id);
 
     await this.gateway.emitToUser(creator.id, WS_EVENTS.PAYLINK_PAID, {
       tokenId,
