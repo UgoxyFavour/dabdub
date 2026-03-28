@@ -1,6 +1,8 @@
 #![no_std]
 
-use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, String, Symbol};
+use soroban_sdk::{
+    contract, contracterror, contractimpl, contracttype, Address, Env, String, Symbol,
+};
 
 /// Extra ledgers beyond `ttl_ledgers` so persistent PayLink data remains readable until
 /// after the logical expiry ledger (archival buffer).
@@ -12,7 +14,9 @@ pub enum DataKey {
     Creator(String),
     PayLink(String),
     Admin,
+    Balance(String),
     StakeBalance(String),
+    Paused,
 }
 
 #[contracttype]
@@ -35,9 +39,13 @@ pub enum Error {
     InvalidAmount = 2,
     CreatorNotFound = 3,
     LedgerOverflow = 4,
-    PayLinkNotFound = 5,
-    NotPayLinkCreator = 6,
-    PayLinkAlreadyPaid = 7,
+    Unauthorized = 5,
+    UserNotFound = 6,
+    ContractPaused = 7,
+    InsufficientBalance = 8,
+    PayLinkNotFound = 9,
+    NotPayLinkCreator = 10,
+    PayLinkAlreadyPaid = 11,
 }
 
 #[contract]
@@ -56,37 +64,62 @@ impl PayLinkContract {
     /// Marks `username` as an existing creator so `create_paylink` may succeed.
     /// Intended to be invoked from the same onboarding flow that provisions profiles on-chain.
     pub fn register_creator(env: Env, username: String) {
-        env.storage().persistent().set(&DataKey::Creator(username), &true);
+        env.storage()
+            .persistent()
+            .set(&DataKey::Creator(username), &true);
     }
 
-    /// Credits yield to a staker's balance. Admin-only; does NOT check the paused flag.
-    pub fn credit_yield(
-        env: Env,
-        username: String,
-        amount: i128,
-    ) -> Result<(), Error> {
-        let admin: Address = env
-            .storage()
-            .instance()
-            .get(&DataKey::Admin)
-            .ok_or(Error::Unauthorized)?;
-        admin.require_auth();
+    pub fn stake(env: Env, username: String, amount: i128) -> Result<(), Error> {
+        Self::require_admin(&env)?;
+        Self::require_not_paused(&env)?;
 
         if amount <= 0 {
             return Err(Error::InvalidAmount);
         }
 
-        if !env.storage().persistent().has(&DataKey::Creator(username.clone())) {
-            return Err(Error::UserNotFound);
+        Self::require_existing_user(&env, &username)?;
+
+        let balance_key = DataKey::Balance(username.clone());
+        let current_balance: i128 = env.storage().persistent().get(&balance_key).unwrap_or(0);
+        if current_balance < amount {
+            return Err(Error::InsufficientBalance);
         }
+
+        let stake_key = DataKey::StakeBalance(username.clone());
+        let current_stake_balance: i128 = env.storage().persistent().get(&stake_key).unwrap_or(0);
+        let new_balance = current_balance - amount;
+        let new_stake_balance = current_stake_balance + amount;
+
+        env.storage().persistent().set(&balance_key, &new_balance);
+        env.storage()
+            .persistent()
+            .set(&stake_key, &new_stake_balance);
+        Self::bump_persistent_ttl(&env, &balance_key);
+        Self::bump_persistent_ttl(&env, &stake_key);
+
+        env.events().publish(
+            (Symbol::new(&env, "staked"),),
+            (username, amount, new_stake_balance, env.ledger().sequence()),
+        );
+
+        Ok(())
+    }
+
+    /// Credits yield to a staker's balance. Admin-only; does NOT check the paused flag.
+    pub fn credit_yield(env: Env, username: String, amount: i128) -> Result<(), Error> {
+        Self::require_admin(&env)?;
+
+        if amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+
+        Self::require_existing_user(&env, &username)?;
 
         let stake_key = DataKey::StakeBalance(username.clone());
         let current: i128 = env.storage().persistent().get(&stake_key).unwrap_or(0);
         let new_balance = current + amount;
         env.storage().persistent().set(&stake_key, &new_balance);
-        env.storage()
-            .persistent()
-            .extend_ttl(&stake_key, PAYLINK_TTL_BUFFER_LEDGERS, PAYLINK_TTL_BUFFER_LEDGERS);
+        Self::bump_persistent_ttl(&env, &stake_key);
 
         env.events().publish(
             (Symbol::new(&env, "yield_credited"),),
@@ -186,9 +219,48 @@ impl PayLinkContract {
     }
 
     pub fn get_paylink(env: Env, token_id: String) -> Option<PayLinkData> {
-        env.storage()
+        env.storage().persistent().get(&DataKey::PayLink(token_id))
+    }
+
+    fn require_admin(env: &Env) -> Result<(), Error> {
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&DataKey::Admin)
+            .ok_or(Error::Unauthorized)?;
+        admin.require_auth();
+        Ok(())
+    }
+
+    fn require_not_paused(env: &Env) -> Result<(), Error> {
+        let paused = env
+            .storage()
+            .instance()
+            .get(&DataKey::Paused)
+            .unwrap_or(false);
+        if paused {
+            return Err(Error::ContractPaused);
+        }
+        Ok(())
+    }
+
+    fn require_existing_user(env: &Env, username: &String) -> Result<(), Error> {
+        if !env
+            .storage()
             .persistent()
-            .get(&DataKey::PayLink(token_id))
+            .has(&DataKey::Creator(username.clone()))
+        {
+            return Err(Error::UserNotFound);
+        }
+        Ok(())
+    }
+
+    fn bump_persistent_ttl(env: &Env, key: &DataKey) {
+        env.storage().persistent().extend_ttl(
+            key,
+            PAYLINK_TTL_BUFFER_LEDGERS,
+            PAYLINK_TTL_BUFFER_LEDGERS,
+        );
     }
 }
 
@@ -212,7 +284,9 @@ mod test {
 
         client.create_paylink(&creator, &token_id, &100_i128, &note, &50);
 
-        let stored = client.get_paylink(&token_id).expect("expected PayLink in storage");
+        let stored = client
+            .get_paylink(&token_id)
+            .expect("expected PayLink in storage");
         assert_eq!(stored.creator_username, creator);
         assert_eq!(stored.amount, 100);
         assert_eq!(stored.note, note);
@@ -236,7 +310,7 @@ mod test {
         client.create_paylink(&creator, &token_id, &1_i128, &note, &10);
         assert_eq!(
             client.try_create_paylink(&creator, &token_id, &2_i128, &note, &10),
-            Ok(Err(Error::PayLinkAlreadyExists))
+            Err(Ok(Error::PayLinkAlreadyExists))
         );
     }
 
@@ -254,7 +328,7 @@ mod test {
 
         assert_eq!(
             client.try_create_paylink(&creator, &token_id, &0_i128, &note, &10),
-            Ok(Err(Error::InvalidAmount))
+            Err(Ok(Error::InvalidAmount))
         );
     }
 
@@ -275,7 +349,9 @@ mod test {
 
         client.cancel_paylink(&creator, &token_id);
 
-        let stored = client.get_paylink(&token_id).expect("expected PayLink in storage");
+        let stored = client
+            .get_paylink(&token_id)
+            .expect("expected PayLink in storage");
         assert!(stored.cancelled);
         assert_eq!(stored.creator_username, creator);
         assert!(!stored.paid);
@@ -299,7 +375,7 @@ mod test {
 
         assert_eq!(
             client.try_cancel_paylink(&other_user, &token_id),
-            Ok(Err(Error::NotPayLinkCreator))
+            Err(Ok(Error::NotPayLinkCreator))
         );
     }
 
@@ -317,16 +393,109 @@ mod test {
 
         client.register_creator(&creator);
         client.create_paylink(&creator, &token_id, &75_i128, &note, &20);
-
-        let mut stored = client.get_paylink(&token_id).expect("expected PayLink in storage");
-        stored.paid = true;
-        env.storage()
-            .persistent()
-            .set(&DataKey::PayLink(token_id.clone()), &stored);
+        set_paylink_paid(&env, &contract_id, &token_id);
 
         assert_eq!(
             client.try_cancel_paylink(&creator, &token_id),
-            Ok(Err(Error::PayLinkAlreadyPaid))
+            Err(Ok(Error::PayLinkAlreadyPaid))
         );
+    }
+
+    fn setup_with_admin(env: &Env) -> (Address, PayLinkContractClient<'_>, Address) {
+        let contract_id = env.register_contract(None, PayLinkContract);
+        let client = PayLinkContractClient::new(env, &contract_id);
+        let admin = Address::generate(env);
+        client.set_admin(&admin);
+        (contract_id, client, admin)
+    }
+
+    fn set_balance(env: &Env, contract_id: &Address, username: &String, amount: i128) {
+        env.as_contract(contract_id, || {
+            env.storage()
+                .persistent()
+                .set(&DataKey::Balance(username.clone()), &amount);
+        });
+    }
+
+    fn get_balance(env: &Env, contract_id: &Address, username: &String) -> i128 {
+        env.as_contract(contract_id, || {
+            env.storage()
+                .persistent()
+                .get(&DataKey::Balance(username.clone()))
+                .unwrap_or(0)
+        })
+    }
+
+    fn get_stake_balance(env: &Env, contract_id: &Address, username: &String) -> i128 {
+        env.as_contract(contract_id, || {
+            env.storage()
+                .persistent()
+                .get(&DataKey::StakeBalance(username.clone()))
+                .unwrap_or(0)
+        })
+    }
+
+    fn set_paylink_paid(env: &Env, contract_id: &Address, token_id: &String) {
+        env.as_contract(contract_id, || {
+            let mut stored = env
+                .storage()
+                .persistent()
+                .get::<_, PayLinkData>(&DataKey::PayLink(token_id.clone()))
+                .expect("expected PayLink in storage");
+            stored.paid = true;
+            env.storage()
+                .persistent()
+                .set(&DataKey::PayLink(token_id.clone()), &stored);
+        });
+    }
+
+    #[test]
+    fn stake_partial_balance_moves_amount_to_stake_balance() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (contract_id, client, _admin) = setup_with_admin(&env);
+
+        let username = String::from_str(&env, "staker-partial");
+        client.register_creator(&username);
+        set_balance(&env, &contract_id, &username, 100);
+
+        client.stake(&username, &40_i128);
+
+        assert_eq!(get_balance(&env, &contract_id, &username), 60);
+        assert_eq!(get_stake_balance(&env, &contract_id, &username), 40);
+    }
+
+    #[test]
+    fn stake_entire_balance_moves_all_liquid_funds_to_stake_balance() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (contract_id, client, _admin) = setup_with_admin(&env);
+
+        let username = String::from_str(&env, "staker-full");
+        client.register_creator(&username);
+        set_balance(&env, &contract_id, &username, 55);
+
+        client.stake(&username, &55_i128);
+
+        assert_eq!(get_balance(&env, &contract_id, &username), 0);
+        assert_eq!(get_stake_balance(&env, &contract_id, &username), 55);
+    }
+
+    #[test]
+    fn over_stake_returns_insufficient_balance() {
+        let env = Env::default();
+        env.mock_all_auths();
+        let (contract_id, client, _admin) = setup_with_admin(&env);
+
+        let username = String::from_str(&env, "staker-over");
+        client.register_creator(&username);
+        set_balance(&env, &contract_id, &username, 25);
+
+        assert_eq!(
+            client.try_stake(&username, &30_i128),
+            Err(Ok(Error::InsufficientBalance))
+        );
+        assert_eq!(get_balance(&env, &contract_id, &username), 25);
+        assert_eq!(get_stake_balance(&env, &contract_id, &username), 0);
     }
 }
