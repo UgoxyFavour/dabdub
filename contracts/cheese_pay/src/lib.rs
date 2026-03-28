@@ -31,6 +31,9 @@ pub enum Error {
     UserNotFound = 6,
 }
 
+pub mod errors;
+pub use errors::Error;
+
 #[contract]
 pub struct CheesePay;
 
